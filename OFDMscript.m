@@ -102,3 +102,81 @@ if equalcheck==1
 else
     fprintf('\nThe original and recovered bit patterns are NOT equal.\n');
 end
+
+%% Constructing a signal across multiple transmission periods without cyclic prefix:
+
+num_periods = 10;
+pause_length = N/4;
+
+pause_vec = zeros([1,pause_length]);
+
+overall_signal = [];
+
+signal_zero = zeros([1, N]);
+
+cyclic_prefixes = [];
+
+time_overall = (0:(N+pause_length)*num_periods-1)/fs; %[s] time vector 
+
+
+for i = 1:num_periods
+
+    input_data = randi([0 M-1],N,1);
+
+% Encode QAM
+    qamEncoded = qammod(input_data,M);
+
+    signal = ifft(qamEncoded);
+
+    prefix = signal((N-pause_length):N-1);
+
+    cyclic_prefixes = [cyclic_prefixes,prefix',signal_zero];
+
+    overall_signal = [overall_signal, pause_vec,signal'];
+
+
+end
+
+overall_abs = abs(overall_signal);
+
+prefix_abs = abs(cyclic_prefixes);
+
+combo_abs = overall_abs + prefix_abs;
+
+PAPR = 10*log10(max(combo_abs.^2)./mean(combo_abs.^2));
+fprintf("Peak-to-Average power ratio found to be %.2f dB with cyclic prefix\n",PAPR)
+
+figure();
+hold on
+plot(time_overall*1e3,overall_abs)
+plot(time_overall*1e3,prefix_abs)
+
+legend("OFDM Time Domain Signal","Cyclic Prefix");
+
+title("A ten sequence OFDM transmission with cyclic prefixes");
+xlabel("Time (ms)")
+ylabel("Amplitude (arb)")
+
+%% Plot orthogonal carriers for an example.
+
+fs = 1024;
+N_fft = 8192;
+time = (0:fs-1)/fs;
+multipliers = (1:10) + 300 ;
+multipliers = multipliers';
+
+orthogonal_signals = cos(2*pi*multipliers*time);
+orthogonal_signals = [zeros([10,fs*2]),orthogonal_signals,zeros([10,fs*2])];
+
+fft_signals = fft(orthogonal_signals',N_fft);
+
+freqs = linspace(0,fs,N_fft);
+
+half_point = floor(N_fft/2);
+
+figure()
+plot(freqs(1:half_point),abs(fft_signals(1:half_point,:)))
+xlim([295,316])
+title("FFT of Orthogonal Frequencies")
+xlabel("Frequency (Hz)");
+ylabel("Amplitude (arb)");
