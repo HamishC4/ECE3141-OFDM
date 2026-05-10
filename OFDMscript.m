@@ -60,6 +60,30 @@ xlabel('Amplitude');
 ylabel('Probability Density');
 title('Histogram of Signal Amplitudes');
 
+%% Frequency Domain Spectrum (PSD)
+
+% We use a larger FFT size
+N_fft = N * 2; 
+signal_freq = fft(signal, N_fft);
+
+% Shift the spectrum so 0 Hz is in the center
+signal_shifted = fftshift(signal_freq);
+
+% Db Power spectrum we use 20*log10 for amplitude-to-dB conversion
+PSD = 20*log10(abs(signal_shifted));
+PSD_norm = PSD - max(PSD); % Normalize so peak is at 0 dB
+
+% The range is from -fs/2 to fs/2
+f_axis = linspace(-fs/2, fs/2, N_fft);
+
+figure;
+plot(f_axis/1e6, PSD_norm, 'LineWidth', 1.5);
+grid on;
+title('Frequency Domain Spectrum of Sent OFDM Signal');
+xlabel('Frequency (MHz)');
+ylabel('Relative Power (dB)');
+ylim([-60 5]); % Adjust to see the noise floor/sidelobes
+
 %% Calculating Peak-to-Average Power Ratio and Performance Statistics
 PAPR = 10*log10(max(signalAmplitudes.^2)./mean(signalAmplitudes.^2));
 
