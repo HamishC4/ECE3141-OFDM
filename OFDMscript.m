@@ -7,7 +7,7 @@ clc;clear all;close all;
 
 
 %% Parameters
-N = 8096; % [] number of subcarriers
+N = 64; % [] number of subcarriers
 T = 1e-3; % [s] symbol period
 M = 16; %[] QAM in use
 fs = N/T; %[Hz] sampling frequency
@@ -80,7 +80,7 @@ figure;
 plot(f_axis/1e6, PSD_norm, 'LineWidth', 1.5);
 grid on;
 title('Frequency Domain Spectrum of Sent OFDM Signal');
-xlabel('Frequency (MHz)');
+xlabel('Frequency (MHz) (centered relative to carrier)'); % carrier frequency is at 0
 ylabel('Relative Power (dB)');
 ylim([-60 5]); % Adjust to see the noise floor/sidelobes
 
