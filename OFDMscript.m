@@ -7,12 +7,15 @@ clc;clear all;close all;
 
 
 %% Parameters
-N = 64; % [] number of subcarriers
+N = 128; % [] number of subcarriers
 T = 1e-3; % [s] symbol period
 M = 16; %[] QAM in use
 fs = N/T; %[Hz] sampling frequency
 df = 1/T; %[Hz] subcarrier spacing
 t = (0:N-1)/fs; %[s] time vector 
+fs2 = 100* N/T;
+t2 = 0:1/fs2 : T; %[s] time vector 
+snr = 10; % SNR for AWGN, in dB
 
 
 %% Generating N random subcarriers (Xn) (our datastream)
@@ -24,23 +27,71 @@ t = (0:N-1)/fs; %[s] time vector
 
 input_data = randi([0 M-1],N,1);
 
+% Use the bit encoding later:
+input_data_bin = int2bit(input_data,log2(M));
 % Encode QAM
+
 qamEncoded = qammod(input_data,M);
 
+%% This section visualises. Only for small dimensions of data, irrelevant for larger simulations.
+if (N <= 32)
+    subcarriers = zeros(N,length(t2));
+    
+    %Plot each subcarrier
+    figure();
+    hold on;
+    title("Visualisation of Individual Carrier Frequencies ");
+    xlabel("Time (s)");
+    ylabel("Amplitude (arb)")
+    for k = 1:N
+        f_k = (k-1-N/2)*df;
+        subcarriers(k,:) = qamEncoded(k)* exp(1i * 2 * pi * f_k * t2);
+       
+    
+        plot(t2,real(subcarriers(k,:))  + k*5,LineWidth=4)    
+    
+    end
+    % Plot the sum of Signals
+    sum_subcarriers = sum(subcarriers);
+    figure()
+    plot(t2,sum_subcarriers,LineWidth=5)
+    title("Sum of Subcarriers (IFFT)");
+    xlabel("Time (s)");
+    ylabel("Amplitude (arb)");
+    
+    
+    % Plot the cyclic prefix: Truncate.
+    t_cyclic = [t2,T:1/fs2 : 5*T/4];
+    sig_cyclic = sum_subcarriers((end - ceil(length(t2)/4)) : end -1);
+    
+    
+    figure();
+    hold on
+    plot(t_cyclic(length(sig_cyclic)+1 : end),sum_subcarriers,LineWidth=5);
+    plot(t_cyclic(1:length(sig_cyclic)),sig_cyclic,LineWidth=5);
+    title("Sum of Subcarriers with cyclic prefix in time domain");
+    xlabel("Time (s)");
+    ylabel("Amplitude (arb)");
+    legend("OFDM symbol","Cyclic Prefix");
+end
 
+
+
+
+%%
 
 figure;
 grid on
-plot(qamEncoded,'*')
+plot(qamEncoded,'^',MarkerSize=10,LineWidth=10,Color=[1 0.5 0])
 xlim([-5,5]);
 ylim([-5,5])
 xlabel("Real Axis A");
 title("QAM encoded input")
 ylabel("Imaginary Axis B")
-grid on;
+axis square;
 
 %% Inverse Forward Fourier Transformation (convert to time domain)
-signal = ifft(qamEncoded);
+signal = ifft(ifftshift(qamEncoded));
 
 % Amplitudes
 signalAmplitudes = abs(signal);
@@ -77,8 +128,9 @@ PSD_norm = PSD - max(PSD); % Normalize so peak is at 0 dB
 f_axis = linspace(-fs/2, fs/2, N_fft);
 
 figure;
-plot(f_axis/1e6, PSD_norm, 'LineWidth', 1.5);
-grid on;
+stem(f_axis/1e6, PSD_norm, 'LineWidth', 1.5);
+axis square
+% grid on;
 title('Frequency Domain Spectrum of Sent OFDM Signal');
 xlabel('Frequency (MHz) (centered relative to carrier)'); % carrier frequency is at 0
 ylabel('Relative Power (dB)');
@@ -103,20 +155,24 @@ fprintf("Max Data Rate with OFDM using %.0f-QAM %.2f Mbps ((QAM) log2(M) * N/T)\
 
 %% Add noise to the transmitted signal.
 
-noisy_signal = awgn(signal,60);
+noisy_signal = awgn(signal,snr,'measured');
+
 
 %% Forward Fourier Transform recovers Xn (our datastream)
-recoveredbitPattern = fft(noisy_signal);
+recoveredbitPattern = fftshift(fft(noisy_signal));
 
 figure()
 hold on
-plot(recoveredbitPattern,'*')
-plot(qamEncoded,'^')
+axis equal
+plot(recoveredbitPattern,'*',LineWidth=10,MarkerSize=10)
+plot(qamEncoded,'^',MarkerSize=10,LineWidth=1)
+xlim([-2,2]);
+ylim([-2,2]);
 legend("Recovered Pattern","Original Pattern")
 title("Recovered Bit Pattern")
 xlabel("Real Axis");
 ylabel("Imaginary Axis")
-grid on;
+
 
 %This is now a relative tolerance
 check=isapprox(qamEncoded,recoveredbitPattern,RelativeTolerance=0.2);
@@ -126,6 +182,27 @@ if equalcheck==1
 else
     fprintf('\nThe original and recovered bit patterns are NOT equal.\n');
 end
+
+%% Demodulating QAM signal to determine BER
+
+dataOutput = qamdemod(recoveredbitPattern,M);
+
+dataOutput_bin = int2bit(dataOutput,log2(M));
+
+check  = dataOutput_bin ~= input_data_bin;
+
+check_symbol = dataOutput ~= input_data;
+
+ber = sum(check)/length(dataOutput_bin);
+
+qer = sum(check_symbol)/length(dataOutput);
+
+fprintf("\nThe bit error rate with %.0f dB SNR is %f \n",snr,ber);
+
+fprintf("\nThe number of mismatched QAM-%.0f symbols out of %.0f is %.0f\n",M,N,sum(check_symbol));
+
+fprintf("\nThe error rate of QAM-%.0f symbols is %f \n",M,qer);
+
 
 %% Constructing a signal across multiple transmission periods without cyclic prefix:
 
@@ -204,3 +281,4 @@ xlim([295,316])
 title("FFT of Orthogonal Frequencies")
 xlabel("Frequency (Hz)");
 ylabel("Amplitude (arb)");
+
