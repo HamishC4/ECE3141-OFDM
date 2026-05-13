@@ -16,8 +16,6 @@ t = (0:N-1)/fs; %[s] time vector
 fs2 = 100* N/T;
 t2 = 0:1/fs2 : T; %[s] time vector 
 snr = 10; % SNR for AWGN, in dB
-
-
 %% Generating N random subcarriers (Xn) (our datastream)
 % This is simulated QAM-4, so 2 bits and 4 possible symbols. Adjust to
 % center. No noise at the moment.
@@ -46,10 +44,7 @@ if (N <= 32)
     for k = 1:N
         f_k = (k-1-N/2)*df;
         subcarriers(k,:) = qamEncoded(k)* exp(1i * 2 * pi * f_k * t2);
-       
-    
         plot(t2,real(subcarriers(k,:))  + k*5,LineWidth=4)    
-    
     end
     % Plot the sum of Signals
     sum_subcarriers = sum(subcarriers);
@@ -152,12 +147,8 @@ fprintf("Symbol rate (1 symbol) %.0f symbols/s\n",1/T)
 fprintf("Max Data Rate without OFDM using %.0f-QAM (send one QAM symbol in one symbol period) %.2f kbps ((QAM) log2(M) * 1/T)\n",M,log2(M)/(T*1e3))
 fprintf("Max Data Rate with OFDM using %.0f-QAM %.2f Mbps ((QAM) log2(M) * N/T)\n",M,N*log2(M)/(T*1e6))
 
-
 %% Add noise to the transmitted signal.
-
 noisy_signal = awgn(signal,snr,'measured');
-
-
 %% Forward Fourier Transform recovers Xn (our datastream)
 recoveredbitPattern = fftshift(fft(noisy_signal));
 
@@ -203,61 +194,6 @@ fprintf("\nThe number of mismatched QAM-%.0f symbols out of %.0f is %.0f\n",M,N,
 
 fprintf("\nThe error rate of QAM-%.0f symbols is %f \n",M,qer);
 
-
-%% Constructing a signal across multiple transmission periods without cyclic prefix:
-
-num_periods = 10;
-pause_length = N/4;
-
-pause_vec = zeros([1,pause_length]);
-
-overall_signal = [];
-
-signal_zero = zeros([1, N]);
-
-cyclic_prefixes = [];
-
-time_overall = (0:(N+pause_length)*num_periods-1)/fs; %[s] time vector 
-
-
-for i = 1:num_periods
-
-    input_data = randi([0 M-1],N,1);
-
-% Encode QAM
-    qamEncoded = qammod(input_data,M);
-
-    signal = ifft(qamEncoded);
-
-    prefix = signal((N-pause_length):N-1);
-
-    cyclic_prefixes = [cyclic_prefixes,prefix',signal_zero];
-
-    overall_signal = [overall_signal, pause_vec,signal'];
-
-
-end
-
-overall_abs = abs(overall_signal);
-
-prefix_abs = abs(cyclic_prefixes);
-
-combo_abs = overall_abs + prefix_abs;
-
-PAPR = 10*log10(max(combo_abs.^2)./mean(combo_abs.^2));
-fprintf("Peak-to-Average power ratio found to be %.2f dB with cyclic prefix\n",PAPR)
-
-figure();
-hold on
-plot(time_overall*1e3,overall_abs)
-plot(time_overall*1e3,prefix_abs)
-
-legend("OFDM Time Domain Signal","Cyclic Prefix");
-
-title("A ten sequence OFDM transmission with cyclic prefixes");
-xlabel("Time (ms)")
-ylabel("Amplitude (arb)")
-
 %% Plot orthogonal carriers for an example.
 
 fs = 1024;
@@ -281,4 +217,135 @@ xlim([295,316])
 title("FFT of Orthogonal Frequencies")
 xlabel("Frequency (Hz)");
 ylabel("Amplitude (arb)");
+
+%% Plot the PAPR of a large range of subcarriers.
+
+N = unique(round(logspace(1,log10(1000000),1000)));
+M =256; %[] QAM in use
+
+snr = 1000; % SNR for AWGN, in dB
+
+paprs_array = zeros([1,length(N)]);
+
+ser_array = zeros([1,length(N)]);
+
+ber_array = zeros([1,length(N)]);
+
+for i = 1:length(N)
+
+input_data = randi([0 M-1],N(i),1);
+input_data_bin = int2bit(input_data,log2(M));
+qamEncoded = qammod(input_data,M);
+signal = ifft(ifftshift(qamEncoded));
+noisy_signal = signal;
+
+paprs_array(i) = 10*log10(max(abs(noisy_signal).^2)./mean(abs(noisy_signal).^2));
+
+recoveredbitPattern = fftshift(fft(noisy_signal));
+
+
+dataOutput = qamdemod(recoveredbitPattern,M);
+
+
+dataOutput_bin = int2bit(dataOutput,log2(M));
+
+check  = dataOutput_bin ~= input_data_bin;
+
+check_symbol = dataOutput ~= input_data;
+
+ber_array(i) = sum(check)/length(dataOutput_bin);
+
+ser_array(i) = sum(check_symbol)/length(dataOutput);
+
+
+
+end
+
+%% 
+
+figure();
+semilogx(N,paprs_array)
+hold on
+grid on
+title("PAPR versus number of subcarriers 256-QAM")
+xlabel("Number of subcarriers N");
+ylabel("PAPR (dB)");
+
+
+
+%% Timing Jitter Simulation - find symbol error rate due to jitter in timing mismatch between clocks.
+
+% Matlab example code used here for understanding how to make OFDM signal, from mathworks website.
+
+M = 16; % Modulation order for 16QAM
+nfft  = 64;
+cplen = 16;
+nSym  = 100;
+nullIdx  = [1:6 33 64-4:64]'; % Pilot and guard carriers used to help prevent leakage between channels/track offsets.
+numDataCarrs = nfft-length(nullIdx);
+
+jitter_stds = linspace(0.001,7,100); % Standard deviation list
+
+jittered_sers = zeros([10,length(jitter_stds)]); % Returned SERs.
+
+%Vector of jitters.
+for i  = 1:length(jitter_stds)
+
+    % Repeat 10 times so we can average data.
+    for j = 1:10
+        inSym = randi([0 M-1],numDataCarrs,nSym);
+        
+        %Modulate QAM/OFDM with varying cyclic prefix
+        qamSig = qammod(inSym,M,UnitAveragePower=true);
+        outSig = ofdmmod(qamSig,nfft,cplen,nullIdx);
+        
+        % I did not use one of matlabs inbuilt channels due to complexity. Instead
+        % I only simulated the timing jitter that might occur over the channel 
+        t_ideal = 1:length(outSig);
+        
+        jitterSTD = jitter_stds(i); % Flatten this out
+        
+        %Jitter with Standard deviation. This simulates timing jitters in
+        %the receiver clock relative to the transmitter clock.
+        timing_noise = jitterSTD*randn(size(t_ideal));
+
+        
+        % Add jitter
+        t_jittered = t_ideal + timing_noise;
+
+        % Ensure null indices from jitter are filtered.
+        t_jittered = max(min(t_jittered,length(outSig)),1);
+        
+        % Interpolate the signal to get jitter.
+        outSig_with_jitter = interp1(t_ideal,outSig,t_jittered,'spline');
+        
+        outSig_with_jitter = outSig_with_jitter(:);
+        
+        %Demodulate the signal.
+        rxSig = ofdmdemod(outSig_with_jitter,nfft,cplen,8,nullIdx);
+        rxData = qamdemod(rxSig,M,UnitAveragePower=true);
+        %Find SER
+        num_se = sum(rxData(:)~=inSym(:));
+        jittered_sers(j,i) = num_se / numel(inSym);
+    end
+    
+
+end
+
+% Compute average from matrix
+average_jitter_ser = mean(jittered_sers,1);
+
+%%
+% Plotting
+figure();
+
+plot(jitter_stds,average_jitter_ser)
+title("Symbol Error Rate for Randomly Distributed Timing Jitter")
+xlabel("Standard Deviation of Jitter from Timing Period")
+ylabel("Symbol Error Rate (SER)")
+grid on
+
+
+
+
 
